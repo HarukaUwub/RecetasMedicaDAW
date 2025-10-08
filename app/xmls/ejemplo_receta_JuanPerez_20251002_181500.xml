@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente>
+    <nombre>Juan Pérez</nombre>
+    <edad>35</edad>
+    <genero>M</genero>
+  </paciente>
+  <medico>
+    <nombre>Dr. Martínez</nombre>
+    <cedula>123456</cedula>
+  </medico>
+  <diagnostico>Gripe común</diagnostico>
+  <medicamentos>
+    <medicamento>
+      <nombre>Paracetamol</nombre>
+      <dosis>500mg</dosis>
+      <frecuencia>3 veces al día</frecuencia>
+    </medicamento>
+    <medicamento>
+      <nombre>Vitamina C</nombre>
+      <dosis>1g</dosis>
+      <frecuencia>1 vez al día</frecuencia>
+    </medicamento>
+  </medicamentos>
+</receta>
