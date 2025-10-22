@@ -1,25 +1,38 @@
 import sys
 import os
 from datetime import datetime
-import tempfile
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QTextEdit,
     QPushButton, QListWidget, QMessageBox, QInputDialog
 )
-from database import Session, insert_receta, init_db, Receta, Paciente, Medico, Medicamento
-from drive_utils import (
-    get_drive_service, get_or_create_folder,
-    upload_file_bytes, list_files_in_folder, download_file_bytes
-)
+from apscheduler.schedulers.background import BackgroundScheduler
+
+# --- Utils ---
+from drive_utils import get_drive_service, get_or_create_folder, upload_file_bytes, list_files_in_folder, download_file_bytes
 from xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta
-from med_pdf_mailer import (
-    generate_pdf_with_password,
-    send_email_with_attachment,
-    send_receta_pdf_by_email as send_email_password
-)
+from med_pdf_mailer import generate_pdf_with_password, send_email_with_attachment
 
+# --- DB opcional ---
+DB_AVAILABLE = False
+try:
+    # Prefer direct names if available
+    from database import Session, insert_receta, Receta, Paciente, Medico
+    DB_AVAILABLE = True
+except Exception as e:
+    # Fallback to importing module and extracting attributes if present
+    try:
+        import database as _db
+        Session = getattr(_db, 'Session')
+        insert_receta = getattr(_db, 'insert_receta')
+        Receta = getattr(_db, 'Receta', None)
+        Paciente = getattr(_db, 'Paciente', None)
+        Medico = getattr(_db, 'Medico', None)
+        DB_AVAILABLE = True
+    except Exception as e2:
+        print("DB no disponible:", e2)
+        DB_AVAILABLE = False
 
-# --- Crear carpetas locales ---
+# --- Carpetas locales ---
 XML_FOLDER = "xmls"
 PDF_FOLDER = "pdfs"
 os.makedirs(XML_FOLDER, exist_ok=True)
@@ -31,6 +44,11 @@ class MainWindow(QWidget):
         super().__init__()
         self.drive_folder_id = None
         self.service = None
+
+        self.medicamentos = []
+        self.recetas_memoria = []  # Para usar si DB falla
+        self.next_id = 1  # ID para memoria
+
         self.init_ui()
 
     def init_ui(self):
@@ -38,121 +56,94 @@ class MainWindow(QWidget):
         layout = QVBoxLayout()
 
         # --- Paciente ---
-        self.paciente_nombre = QLineEdit()
-        self.paciente_nombre.setPlaceholderText("Nombre paciente")
-        self.paciente_edad = QLineEdit()
-        self.paciente_edad.setPlaceholderText("Edad")
-        self.paciente_genero = QLineEdit()
-        self.paciente_genero.setPlaceholderText("Género (M/F)")
-        self.paciente_correo = QLineEdit()
-        self.paciente_correo.setPlaceholderText("Correo paciente")
+        self.paciente_nombre = QLineEdit(); self.paciente_nombre.setPlaceholderText("Nombre paciente")
+        self.paciente_edad = QLineEdit(); self.paciente_edad.setPlaceholderText("Edad")
+        self.paciente_genero = QLineEdit(); self.paciente_genero.setPlaceholderText("Género (M/F)")
+        self.paciente_correo = QLineEdit(); self.paciente_correo.setPlaceholderText("Correo paciente")
 
         # --- Médico ---
-        self.medico_nombre = QLineEdit()
-        self.medico_nombre.setPlaceholderText("Nombre médico")
-        self.medico_cedula = QLineEdit()
-        self.medico_cedula.setPlaceholderText("Cédula profesional")
-        self.medico_especialidad = QLineEdit()
-        self.medico_especialidad.setPlaceholderText("Especialidad")
+        self.medico_nombre = QLineEdit(); self.medico_nombre.setPlaceholderText("Nombre médico")
+        self.medico_cedula = QLineEdit(); self.medico_cedula.setPlaceholderText("Cédula profesional")
+        self.medico_especialidad = QLineEdit(); self.medico_especialidad.setPlaceholderText("Especialidad")
 
         # --- Diagnóstico ---
-        self.diagnostico = QTextEdit()
-        self.diagnostico.setPlaceholderText("Diagnóstico")
+        self.diagnostico = QTextEdit(); self.diagnostico.setPlaceholderText("Diagnóstico")
 
         # --- Medicamentos ---
-        self.medicamentos_text = QTextEdit()
-        self.medicamentos_text.setPlaceholderText("Medicamentos (nombre|dosis|frecuencia por línea)")
+        self.medicamento_nombre = QLineEdit(); self.medicamento_nombre.setPlaceholderText("Nombre medicamento")
+        self.medicamento_dosis = QLineEdit(); self.medicamento_dosis.setPlaceholderText("Dosis")
+        self.medicamento_frecuencia = QLineEdit(); self.medicamento_frecuencia.setPlaceholderText("Frecuencia")
+        self.btn_agregar_medicamento = QPushButton("Agregar medicamento")
+        self.btn_agregar_medicamento.clicked.connect(self.agregar_medicamento)
+        self.lista_medicamentos = QListWidget()
 
         # --- Botones ---
-        self.btn_generar = QPushButton("Generar receta y subir a Drive")
-        self.btn_generar.clicked.connect(self.on_generar)
-
-        self.btn_recuperar = QPushButton("Recuperar recetas desde Drive")
-        self.btn_recuperar.clicked.connect(self.on_recuperar)
-
-        self.btn_enviar_correo = QPushButton("Enviar receta por correo (PDF protegido)")
-        self.btn_enviar_correo.clicked.connect(self.on_enviar_correo)
-
-        # --- Lista de archivos ---
+        self.btn_generar = QPushButton("Generar receta y subir a Drive"); self.btn_generar.clicked.connect(self.on_generar)
+        self.btn_recuperar = QPushButton("Recuperar recetas desde Drive"); self.btn_recuperar.clicked.connect(self.on_recuperar)
+        self.btn_enviar_correo = QPushButton("Enviar receta por correo"); self.btn_enviar_correo.clicked.connect(self.on_enviar_correo)
         self.lista = QListWidget()
 
         # --- Layout ---
         layout.addWidget(QLabel("Paciente"))
-        layout.addWidget(self.paciente_nombre)
-        layout.addWidget(self.paciente_edad)
-        layout.addWidget(self.paciente_genero)
-        layout.addWidget(self.paciente_correo)
+        layout.addWidget(self.paciente_nombre); layout.addWidget(self.paciente_edad)
+        layout.addWidget(self.paciente_genero); layout.addWidget(self.paciente_correo)
 
         layout.addWidget(QLabel("Médico"))
-        layout.addWidget(self.medico_nombre)
-        layout.addWidget(self.medico_cedula)
+        layout.addWidget(self.medico_nombre); layout.addWidget(self.medico_cedula)
         layout.addWidget(self.medico_especialidad)
 
-        layout.addWidget(QLabel("Diagnóstico"))
-        layout.addWidget(self.diagnostico)
+        layout.addWidget(QLabel("Diagnóstico")); layout.addWidget(self.diagnostico)
 
-        layout.addWidget(QLabel("Medicamentos"))
-        layout.addWidget(self.medicamentos_text)
+        layout.addWidget(QLabel("Medicamento individual"))
+        layout.addWidget(self.medicamento_nombre); layout.addWidget(self.medicamento_dosis)
+        layout.addWidget(self.medicamento_frecuencia); layout.addWidget(self.btn_agregar_medicamento)
+        layout.addWidget(QLabel("Medicamentos agregados:")); layout.addWidget(self.lista_medicamentos)
 
-        layout.addWidget(self.btn_generar)
-        layout.addWidget(self.btn_recuperar)
+        layout.addWidget(self.btn_generar); layout.addWidget(self.btn_recuperar)
         layout.addWidget(self.btn_enviar_correo)
-        layout.addWidget(QLabel("Archivos en Drive:"))
-        layout.addWidget(self.lista)
+        layout.addWidget(QLabel("Archivos en Drive:")); layout.addWidget(self.lista)
 
         self.setLayout(layout)
 
-    # ====================== DRIVE ============================
-    def init_drive(self):
-        """Inicializa conexión a Google Drive solo cuando se requiere."""
-        if self.service and self.drive_folder_id:
+    # ====================== MÉTODOS ======================
+    def agregar_medicamento(self):
+        nombre, dosis, frecuencia = self.medicamento_nombre.text().strip(), self.medicamento_dosis.text().strip(), self.medicamento_frecuencia.text().strip()
+        if not nombre: 
+            QMessageBox.warning(self, "Error", "Nombre del medicamento obligatorio")
             return
+        self.medicamentos.append({"nombre": nombre, "dosis": dosis, "frecuencia": frecuencia})
+        self.lista_medicamentos.addItem(f"{nombre} | {dosis} | {frecuencia}")
+        self.medicamento_nombre.clear(); self.medicamento_dosis.clear(); self.medicamento_frecuencia.clear()
+
+    def init_drive(self):
+        if self.service and self.drive_folder_id: return
         try:
             self.service = get_drive_service()
             self.drive_folder_id = get_or_create_folder(self.service, "RecetasMedicas")
         except Exception as e:
-            QMessageBox.critical(self, "Error Drive", f"No se pudo inicializar Drive:\n{e}")
+            print("Drive no disponible:", e)
 
-    # ====================== GENERAR ============================
+    # ====================== GENERAR ======================
     def on_generar(self):
-        """Genera XML, PDF, sube a Drive y guarda en DB."""
         try:
             edad = int(self.paciente_edad.text()) if self.paciente_edad.text() else None
         except ValueError:
             edad = None
 
         data = {
-            "paciente": {
-                "nombre": self.paciente_nombre.text(),
-                "edad": edad,
-                "genero": self.paciente_genero.text().upper() if self.paciente_genero.text().upper() in ['M', 'F'] else None,
-                "correo": self.paciente_correo.text()
-            },
-            "medico": {
-                "nombre": self.medico_nombre.text(),
-                "cedula": self.medico_cedula.text(),
-                "especialidad": self.medico_especialidad.text()
-            },
+            "paciente": {"nombre": self.paciente_nombre.text(), "edad": edad,
+                         "genero": self.paciente_genero.text().upper() if self.paciente_genero.text().upper() in ['M','F'] else None,
+                         "correo": self.paciente_correo.text()},
+            "medico": {"nombre": self.medico_nombre.text(), "cedula": self.medico_cedula.text(),
+                       "especialidad": self.medico_especialidad.text()},
             "diagnostico": self.diagnostico.toPlainText(),
-            "medicamentos": []
+            "medicamentos": self.medicamentos
         }
 
-        for line in self.medicamentos_text.toPlainText().splitlines():
-            if not line.strip():
-                continue
-            parts = line.split('|')
-            data['medicamentos'].append({
-                "nombre": parts[0].strip(),
-                "dosis": parts[1].strip() if len(parts) > 1 else "",
-                "frecuencia": parts[2].strip() if len(parts) > 2 else ""
-            })
-
-        # --- Generar XML y PDF ---
+        # --- XML y PDF ---
         xml_bytes, xml_filename = generar_xml_receta(data)
         xml_path = os.path.join(XML_FOLDER, xml_filename)
-        with open(xml_path, 'wb') as f:
-            f.write(xml_bytes)
-
+        with open(xml_path, 'wb') as f: f.write(xml_bytes)
         pdf_path = generar_pdf_receta(data)
 
         # --- Subir a Drive ---
@@ -160,26 +151,21 @@ class MainWindow(QWidget):
         if self.service and self.drive_folder_id:
             try:
                 upload_file_bytes(self.service, xml_bytes, xml_filename, folder_id=self.drive_folder_id)
-                QMessageBox.information(self, "Éxito", f"Archivo subido: {xml_filename}\nPDF generado: {pdf_path}")
+                print(f"Archivo subido: {xml_filename}")
+            except Exception as e: print("Error subiendo a Drive:", e)
+
+        # --- Guardar DB o memoria ---
+        if DB_AVAILABLE:
+            session = Session()
+            try:
+                insert_receta(session, data)
+                session.commit()
             except Exception as e:
-                QMessageBox.warning(self, "Drive", f"No se pudo subir a Drive:\n{e}")
-        else:
-            QMessageBox.information(self, "Info", f"PDF generado: {pdf_path}\nNo se subió a Drive.")
-
-        # --- Guardar en DB ---
-        session = Session()
-        try:
-            receta_id = insert_receta(session, data)
-            QMessageBox.information(self, "DB", f"Receta guardada con id {receta_id}")
-        except Exception as e_db:
-            session.rollback()
-            QMessageBox.warning(self, "DB", f"No se pudo guardar en DB:\n{e_db}")
-        finally:
-            session.close()
-
-    # ====================== RECUPERAR ============================
+                session.rollback()
+                print("Error guardando DB:", e)
+    # ====================== RECUPERAR ======================
     def on_recuperar(self):
-        """Recupera recetas desde Google Drive."""
+        """Recupera recetas desde Google Drive y sincroniza memoria y DB."""
         self.init_drive()
         if not (self.service and self.drive_folder_id):
             QMessageBox.warning(self, "Drive", "No se puede recuperar archivos sin Drive.")
@@ -188,14 +174,47 @@ class MainWindow(QWidget):
         try:
             files = list_files_in_folder(self.service, self.drive_folder_id)
             self.lista.clear()
+
             if not files:
                 QMessageBox.information(self, "Info", "No hay archivos en Drive.")
                 return
 
-            session = Session()
             nuevos = 0
+            actualizados = 0
+            deleted_count = 0
+
+            # IDs actuales en Drive
+            drive_ids = [f['id'] for f in files if f['name'].lower().endswith('.xml')]
+
+            # Preparar sesión si la DB está disponible
+            session = None
+            recetas_en_db = []
+            if DB_AVAILABLE:
+                try:
+                    session = Session()
+                    # --- Sincronizar DB ---
+                    # Eliminar recetas que ya no existen en Drive
+                    recetas_en_db = session.query(Receta).all()
+                    for receta in recetas_en_db:
+                        if getattr(receta, 'drive_file_id', None) and receta.drive_file_id not in drive_ids:
+                            session.delete(receta)
+                    session.commit()
+                    # calcular eliminadas hasta ahora
+                    try:
+                        remaining = session.query(Receta).count()
+                        deleted_count = len(recetas_en_db) - remaining
+                    except Exception:
+                        deleted_count = 0
+                except Exception as e:
+                    if session:
+                        session.rollback()
+                        session.close()
+                    session = None
+                    print("Error preparando DB para sincronización:", e)
+
+            # --- Descargar y actualizar/insertar ---
             for f in files:
-                self.lista.addItem(f"{f['name']} | {f['id']} | {f['modifiedTime']}")
+                self.lista.addItem(f"{f['name']} | {f['id']} | {f.get('modifiedTime','')}")
                 if not f['name'].lower().endswith(".xml"):
                     continue
 
@@ -205,127 +224,79 @@ class MainWindow(QWidget):
                     xf.write(xml_bytes)
 
                 receta_data = parse_xml_receta(xml_bytes)
+                receta_data['drive_file_id'] = f['id']  # guardar ID de Drive para seguimiento
 
                 # --- Verificar si ya existe ---
-                paciente_correo = receta_data["paciente"]["correo"]
-                medico_cedula = receta_data["medico"]["cedula"]
-                diagnostico = receta_data["diagnostico"]
+                if DB_AVAILABLE and session is not None:
+                    try:
+                        paciente_correo = receta_data.get("paciente", {}).get("correo")
+                        medico_cedula = receta_data.get("medico", {}).get("cedula")
+                        diagnostico = receta_data.get("diagnostico")
 
-                existe = session.query(Receta).join(Paciente).join(Medico).filter(
-                    Paciente.correo == paciente_correo,
-                    Medico.cedula_profesional == medico_cedula,
-                    Receta.diagnostico == diagnostico
-                ).first()
+                        existe = session.query(Receta).join(Paciente).join(Medico).filter(
+                            Paciente.correo == paciente_correo,
+                            Medico.cedula_profesional == medico_cedula,
+                            Receta.diagnostico == diagnostico
+                        ).first()
 
-                if not existe:
-                    insert_receta(session, receta_data)
+                        if existe:
+                            # Sobrescribir datos existentes
+                            existe.diagnostico = diagnostico
+                            existe.medicamentos = receta_data.get("medicamentos", [])
+                            existe.drive_file_id = f['id']
+                            actualizados += 1
+                        else:
+                            insert_receta(session, receta_data)
+                            nuevos += 1
+                    except Exception as e:
+                        session.rollback()
+                        print("Error actualizando/insertando en DB:", e)
+                else:
+                    # Guardar en memoria si no hay DB
+                    receta_data["id"] = self.next_id
+                    self.recetas_memoria.append(receta_data)
+                    self.next_id += 1
                     nuevos += 1
 
-            session.close()
-            QMessageBox.information(self, "Recuperación completa", f"Se insertaron {nuevos} nuevas recetas en la base de datos.")
+            if session:
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                finally:
+                    session.close()
+
+            QMessageBox.information(
+                self,
+                "Recuperación completa",
+                f"Se insertaron {nuevos} nuevas recetas y se actualizaron {actualizados} existentes.\n"
+                f"Recetas eliminadas de DB: {deleted_count}"
+            )
 
         except Exception as e:
-            QMessageBox.critical(self, "Drive", f"No se pudo recuperar o insertar archivos:\n{e}")
+            QMessageBox.critical(self, "Drive", f"No se pudo recuperar o sincronizar archivos:\n{e}")
 
-    # ====================== ENVIAR CORREO ============================
+
+    # ====================== ENVIAR CORREO ======================
     def on_enviar_correo(self):
-        """Genera un PDF protegido y lo envía por correo al paciente usando credenciales del .env."""
-        try:
-            # --- Pedir ID de receta ---
-            receta_id, ok = QInputDialog.getText(self, "Enviar receta", "Ingrese el ID de la receta:")
-            if not ok or not receta_id.strip():
-                return
-            if not receta_id.isdigit():
-                QMessageBox.warning(self, "Error", "El ID debe ser numérico.")
-                return
-            receta_id = int(receta_id)
-
-        # --- Obtener datos de la DB ---
-            session = Session()
-            receta = session.query(Receta).filter_by(id=receta_id).first()
-            if not receta:
-                QMessageBox.warning(self, "Error", "No se encontró la receta.")
-                return
-
-            paciente = session.query(Paciente).filter_by(id=receta.id_paciente).first()
-            medicamentos = session.query(Medicamento).filter_by(id_receta=receta.id).all()
-
-            if not paciente or not paciente.correo:
-                QMessageBox.warning(self, "Error", "El paciente no tiene correo registrado.")
-                return
-
-            if not medicamentos:
-                QMessageBox.warning(self, "Error", "La receta no tiene medicamentos.")
-                return
-
-        # --- Leer credenciales del .env ---
-            EMAIL_USER = os.getenv("EMAIL_USERNAME")
-            EMAIL_PASS = os.getenv("EMAIL_PASSWORD")
-            SMTP_SERVER = os.getenv("EMAIL_SMTP_SERVER")
-            SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT", 587))
-
-            if not EMAIL_USER or not EMAIL_PASS or not SMTP_SERVER:
-                QMessageBox.warning(self, "Error", "Faltan credenciales SMTP en el archivo .env")
-                return
-
-        # --- Generar contraseña para PDF ---
-            password = f"{os.getenv('PDF_PASS_PREFIX','AAAA')}-{receta.id}-{datetime.now().strftime('%Y%m%d')}"
-            meds_list = [
-                {"nombre": m.nombre, "dosis": m.dosis, "frecuencia": m.frecuencia}
-                    for m in medicamentos
-                ]
-        # --- Generar PDF protegido ---
-            pdf_path, _ = generate_pdf_with_password(
-                receta_id=receta.id,
-                paciente=paciente,
-                medicamentos=meds_list,
-                password=password
-            )
-        # pdf_path contiene la ruta exacta del PDF generado
-
-        # --- Enviar PDF ---
-            send_email_with_attachment(
-                smtp_server=SMTP_SERVER,
-                smtp_port=SMTP_PORT,
-                username=EMAIL_USER,
-                password=EMAIL_PASS,
-                sender=f"Recetario Médico <{EMAIL_USER}>",
-                recipient = paciente.correo or "wariom360@live.com.mx",
-                subject=f"Receta médica #{receta.id}",
-                body="Adjunto encontrarás tu receta médica en formato PDF protegido.",
-                attachment_path=pdf_path
-            )
-
-        # --- Enviar contraseña en segundo correo ---
-            send_email_with_attachment(
-                smtp_server=SMTP_SERVER,
-                smtp_port=SMTP_PORT,
-                username=EMAIL_USER,
-                password=EMAIL_PASS,
-                sender=f"Recetario Médico <{EMAIL_USER}>",
-                recipient = paciente.correo or "wariom360@live.com.mx",
-                subject=f"Contraseña de tu receta #{receta.id}",
-                body=f"La contraseña para abrir el PDF es:\n\n{password}\n\nPor favor, no compartas esta contraseña."
-            )
-
-            QMessageBox.information(self, "Éxito", f"Receta #{receta.id} enviada a {paciente.correo}")
-
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"No se pudo enviar la receta:\n{e}")
-        finally:
-            session.close()
+        QMessageBox.information(self, "Info", "Función de envío de correo (PDF protegido) pendiente.")
 
 
-
-# ====================== MAIN ============================
-if __name__ == "__main__":
+# ====================== JOB SYNC ======================
+def start_sync_job(window, minutes=15):
     try:
-        print("Iniciando aplicación...")
-        init_db()
-        print("Base de datos inicializada.")
-        app = QApplication(sys.argv)
-        window = MainWindow()
-        window.show()
-        sys.exit(app.exec_())
+        sched = BackgroundScheduler()
+        sched.add_job(lambda: window.on_recuperar(), 'interval', minutes=minutes)
+        sched.start()
+        print(f"Sync job iniciado cada {minutes} minutos.")
     except Exception as e:
-        print("Error crítico:", e)
+        print("No se pudo iniciar el job de sincronización:", e)
+
+
+# ====================== MAIN ======================
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    start_sync_job(window, minutes=15)
+    sys.exit(app.exec_())
