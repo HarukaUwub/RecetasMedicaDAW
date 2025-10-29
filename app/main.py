@@ -8,29 +8,22 @@ from PyQt5.QtWidgets import (
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- Utils ---
-from drive_utils import get_drive_service, get_or_create_folder, upload_file_bytes, list_files_in_folder, download_file_bytes
+from drive_utils import (
+    get_drive_service, get_or_create_folder, upload_file_bytes,
+    list_files_in_folder, download_file_bytes
+)
 from xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta
 from med_pdf_mailer import generate_pdf_with_password, send_email_with_attachment
 
 # --- DB opcional ---
 DB_AVAILABLE = False
 try:
-    # Prefer direct names if available
-    from database import Session, insert_receta, Receta, Paciente, Medico
+    from database import Session, insert_receta
+    from models import Receta, Paciente, Medico
     DB_AVAILABLE = True
 except Exception as e:
-    # Fallback to importing module and extracting attributes if present
-    try:
-        import database as _db
-        Session = getattr(_db, 'Session')
-        insert_receta = getattr(_db, 'insert_receta')
-        Receta = getattr(_db, 'Receta', None)
-        Paciente = getattr(_db, 'Paciente', None)
-        Medico = getattr(_db, 'Medico', None)
-        DB_AVAILABLE = True
-    except Exception as e2:
-        print("DB no disponible:", e2)
-        DB_AVAILABLE = False
+    DB_AVAILABLE = False
+    print("DB no disponible:", e)
 
 # --- Carpetas locales ---
 XML_FOLDER = "xmls"
@@ -44,11 +37,9 @@ class MainWindow(QWidget):
         super().__init__()
         self.drive_folder_id = None
         self.service = None
-
         self.medicamentos = []
-        self.recetas_memoria = []  # Para usar si DB falla
-        self.next_id = 1  # ID para memoria
-
+        self.recetas_memoria = []
+        self.next_id = 1
         self.init_ui()
 
     def init_ui(self):
@@ -163,9 +154,12 @@ class MainWindow(QWidget):
             except Exception as e:
                 session.rollback()
                 print("Error guardando DB:", e)
+        else:
+            # Guardar en memoria local evitando duplicados
+            self._update_memoria(data)
+
     # ====================== RECUPERAR ======================
     def on_recuperar(self):
-        """Recupera recetas desde Google Drive y sincroniza memoria y DB."""
         self.init_drive()
         if not (self.service and self.drive_folder_id):
             QMessageBox.warning(self, "Drive", "No se puede recuperar archivos sin Drive.")
@@ -174,60 +168,27 @@ class MainWindow(QWidget):
         try:
             files = list_files_in_folder(self.service, self.drive_folder_id)
             self.lista.clear()
-
             if not files:
                 QMessageBox.information(self, "Info", "No hay archivos en Drive.")
                 return
 
-            nuevos = 0
-            actualizados = 0
-            deleted_count = 0
+            nuevos = 0; actualizados = 0
 
-            # IDs actuales en Drive
-            drive_ids = [f['id'] for f in files if f['name'].lower().endswith('.xml')]
+            session = Session() if DB_AVAILABLE else None
 
-            # Preparar sesión si la DB está disponible
-            session = None
-            recetas_en_db = []
-            if DB_AVAILABLE:
-                try:
-                    session = Session()
-                    # --- Sincronizar DB ---
-                    # Eliminar recetas que ya no existen en Drive
-                    recetas_en_db = session.query(Receta).all()
-                    for receta in recetas_en_db:
-                        if getattr(receta, 'drive_file_id', None) and receta.drive_file_id not in drive_ids:
-                            session.delete(receta)
-                    session.commit()
-                    # calcular eliminadas hasta ahora
-                    try:
-                        remaining = session.query(Receta).count()
-                        deleted_count = len(recetas_en_db) - remaining
-                    except Exception:
-                        deleted_count = 0
-                except Exception as e:
-                    if session:
-                        session.rollback()
-                        session.close()
-                    session = None
-                    print("Error preparando DB para sincronización:", e)
-
-            # --- Descargar y actualizar/insertar ---
             for f in files:
                 self.lista.addItem(f"{f['name']} | {f['id']} | {f.get('modifiedTime','')}")
-                if not f['name'].lower().endswith(".xml"):
-                    continue
+                if not f['name'].lower().endswith(".xml"): continue
 
                 xml_bytes = download_file_bytes(self.service, f['id'])
                 local_path = os.path.join(XML_FOLDER, f['name'])
-                with open(local_path, 'wb') as xf:
-                    xf.write(xml_bytes)
+                with open(local_path, 'wb') as xf: xf.write(xml_bytes)
 
                 receta_data = parse_xml_receta(xml_bytes)
-                receta_data['drive_file_id'] = f['id']  # guardar ID de Drive para seguimiento
+                receta_data['drive_file_id'] = f['id']
 
-                # --- Verificar si ya existe ---
-                if DB_AVAILABLE and session is not None:
+                # ================= ACTUALIZAR DB =================
+                if DB_AVAILABLE and session:
                     try:
                         paciente_correo = receta_data.get("paciente", {}).get("correo")
                         medico_cedula = receta_data.get("medico", {}).get("cedula")
@@ -240,7 +201,6 @@ class MainWindow(QWidget):
                         ).first()
 
                         if existe:
-                            # Sobrescribir datos existentes
                             existe.diagnostico = diagnostico
                             existe.medicamentos = receta_data.get("medicamentos", [])
                             existe.drive_file_id = f['id']
@@ -250,47 +210,128 @@ class MainWindow(QWidget):
                             nuevos += 1
                     except Exception as e:
                         session.rollback()
-                        print("Error actualizando/insertando en DB:", e)
+                        print("Error DB:", e)
                 else:
-                    # Guardar en memoria si no hay DB
-                    receta_data["id"] = self.next_id
-                    self.recetas_memoria.append(receta_data)
-                    self.next_id += 1
-                    nuevos += 1
+                    # ================= ACTUALIZAR MEMORIA =================
+                    if self._update_memoria(receta_data):
+                        actualizados += 1
+                    else:
+                        nuevos += 1
 
             if session:
-                try:
-                    session.commit()
-                except Exception:
-                    session.rollback()
-                finally:
-                    session.close()
+                try: session.commit()
+                except Exception: session.rollback()
+                finally: session.close()
 
             QMessageBox.information(
                 self,
                 "Recuperación completa",
-                f"Se insertaron {nuevos} nuevas recetas y se actualizaron {actualizados} existentes.\n"
-                f"Recetas eliminadas de DB: {deleted_count}"
+                f"Nuevas recetas: {nuevos}, actualizadas: {actualizados}"
             )
 
         except Exception as e:
-            QMessageBox.critical(self, "Drive", f"No se pudo recuperar o sincronizar archivos:\n{e}")
+            QMessageBox.critical(self, "Drive", f"No se pudo recuperar:\n{e}")
 
+    # ====================== MEMORIA LOCAL ======================
+    def _update_memoria(self, receta_data):
+        """Actualiza memoria local evitando duplicados. Retorna True si se actualizó."""
+        clave = (
+            receta_data.get("paciente", {}).get("correo"),
+            receta_data.get("medico", {}).get("cedula"),
+            receta_data.get("diagnostico")
+        )
+        for r in self.recetas_memoria:
+            r_clave = (
+                r.get("paciente", {}).get("correo"),
+                r.get("medico", {}).get("cedula"),
+                r.get("diagnostico")
+            )
+            if clave == r_clave:
+                r.update(receta_data)
+                return True
+        receta_data["id"] = self.next_id
+        self.recetas_memoria.append(receta_data)
+        self.next_id += 1
+        return False
 
     # ====================== ENVIAR CORREO ======================
     def on_enviar_correo(self):
-        QMessageBox.information(self, "Info", "Función de envío de correo (PDF protegido) pendiente.")
+        # Pedir al usuario el ID de la receta
+        receta_id, ok = QInputDialog.getInt(self, "Enviar receta", "Ingrese ID de la receta:")
+        if not ok:
+            return
+
+        # Buscar receta en memoria local
+        receta = next((r for r in self.recetas_memoria if r.get("id") == receta_id), None)
+
+        # Si DB está disponible, buscar allí también
+        if DB_AVAILABLE and not receta:
+            session = Session()
+            try:
+                receta_obj = session.query(Receta).filter_by(id=receta_id).first()
+                if receta_obj:
+                    receta = {
+                        "paciente": {"nombre": getattr(receta_obj.paciente, "nombre", ""),
+                                     "correo": getattr(receta_obj.paciente, "correo", "")},
+                        "medico": {"nombre": getattr(receta_obj.medico, "nombre", "")},
+                        "diagnostico": getattr(receta_obj, "diagnostico", ""),
+                        "medicamentos": [{"nombre": m.nombre, "dosis": m.dosis, "frecuencia": m.frecuencia} 
+                                         for m in getattr(receta_obj, "medicamentos", [])]
+                    }
+            finally:
+                session.close()
+
+        if not receta or not receta.get("paciente", {}).get("correo"):
+            QMessageBox.warning(self, "Error", f"No se encontró receta o correo para ID {receta_id}.")
+            return
+
+        correo = receta["paciente"]["correo"]
+        
+        # Generar PDF cifrado
+        pdf_path, password = generate_pdf_with_password(
+            receta_id,
+            receta.get("paciente"),
+            receta.get("medico"),
+            receta.get("medicamentos")
+        )
+
+        sender_str = f"{os.getenv('EMAIL_SENDER_NAME','Recetario')} <{os.getenv('EMAIL_USERNAME')}>"
+
+        # --- Primer correo: PDF ---
+        send_email_with_attachment(
+            smtp_server=os.getenv("EMAIL_SMTP_SERVER"),
+            smtp_port=int(os.getenv("EMAIL_SMTP_PORT", 587)),
+            username=os.getenv("EMAIL_USERNAME"),
+            password=os.getenv("EMAIL_PASSWORD"),
+            sender=sender_str,
+            recipient=correo,
+            subject=f"Receta médica (ID {receta_id})",
+            body="Adjuntamos su receta médica en formato PDF. Por seguridad la contraseña se enviará en un correo separado.",
+            attachment_path=pdf_path
+        )
+
+        # --- Segundo correo: contraseña ---
+        send_email_with_attachment(
+            smtp_server=os.getenv("EMAIL_SMTP_SERVER"),
+            smtp_port=int(os.getenv("EMAIL_SMTP_PORT", 587)),
+            username=os.getenv("EMAIL_USERNAME"),
+            password=os.getenv("EMAIL_PASSWORD"),
+            sender=sender_str,
+            recipient=correo,
+            subject=f"Contraseña para abrir su receta (ID {receta_id})",
+            body=f"La contraseña para abrir su PDF es:\n\n{password}\n\nPor favor, no comparta esta contraseña.",
+            attachment_path=None
+        )
+
+        QMessageBox.information(self, "Correo enviado", f"Receta ID {receta_id} enviada a {correo} (PDF protegido).")
 
 
 # ====================== JOB SYNC ======================
 def start_sync_job(window, minutes=15):
-    try:
-        sched = BackgroundScheduler()
-        sched.add_job(lambda: window.on_recuperar(), 'interval', minutes=minutes)
-        sched.start()
-        print(f"Sync job iniciado cada {minutes} minutos.")
-    except Exception as e:
-        print("No se pudo iniciar el job de sincronización:", e)
+    sched = BackgroundScheduler()
+    sched.add_job(lambda: window.on_recuperar(), 'interval', minutes=minutes)
+    sched.start()
+    print(f"Sync job iniciado cada {minutes} minutos.")
 
 
 # ====================== MAIN ======================

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+
+  <xs:element name="paciente">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="id" type="xs:integer"/>
+        <xs:element name="nombre" type="xs:string"/>
+        <xs:element name="edad" type="xs:integer"/>
+        <xs:element name="genero" type="generoType"/>
+        <xs:element name="correo" type="xs:string"/>
+        <xs:element name="telefono" type="xs:string"/>
+        <xs:element name="direccion" type="direccionType"/>
+        <xs:element name="metadatos" type="metadatosType"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="generoType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="M"/>
+      <xs:enumeration value="F"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:complexType name="direccionType">
+    <xs:sequence>
+      <xs:element name="calle" type="xs:string"/>
+      <xs:element name="colonia" type="xs:string"/>
+      <xs:element name="ciudad" type="xs:string"/>
+      <xs:element name="estado" type="xs:string"/>
+      <xs:element name="cp" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="metadatosType">
+    <xs:sequence>
+      <xs:element name="origen" type="origenType"/>
+      <xs:element name="fecha_evento" type="xs:dateTime"/>
+      <xs:element name="operacion" type="operacionType"/>
+      <xs:element name="checksum" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:simpleType name="origenType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="WEB"/>
+      <xs:enumeration value="LOCAL"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="operacionType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="ALTA"/>
+      <xs:enumeration value="ACTUALIZACION"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>
