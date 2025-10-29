@@ -1,90 +1,76 @@
-# database.py
-from datetime import datetime
+import os
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
-from models import Base, Paciente, Medico, Receta, Medicamento
-
-# Configura tu conexión a MySQL (XAMPP)
-engine = create_engine(
-    "mysql+pymysql://root:@localhost/recetario_db",
-    echo=True
-)
-
-
-Session = sessionmaker(bind=engine)
+from models import Base
+from datetime import datetime
 
 def init_db():
-    print("→ Iniciando verificación de tablas...")
-
+    """Inicializa la BD MySQL si hay conexión, si no usa SQLite local."""
+    print("-> Iniciando verificacion de tablas...")
     try:
+        engine = create_engine("mysql+pymysql://root:@localhost/recetario_db", echo=False)
         with engine.connect() as conn:
-            print("✔ Conexión establecida con la base de datos.")
-            inspector = inspect(conn)
-            existing_tables = inspector.get_table_names()
-            print(f"Tablas detectadas: {existing_tables}")
-
-        for table_name, table_obj in Base.metadata.tables.items():
-            if table_name not in existing_tables:
-                print(f"⚙ Creando tabla: {table_name}")
-                table_obj.create(engine)
-            else:
-                print(f"✔ Tabla existente: {table_name}")
+            conn.execute("SELECT 1")
+        print("OK Conectado a MySQL")
     except Exception as e:
-        print("❌ Error durante la inspección o creación:", e)
-        Base.metadata.create_all(engine)
-        print("✔ Todas las tablas creadas manualmente.")
+        print(f"ADVERTENCIA No se pudo conectar a MySQL: {e}")
+        print("-> Usando base de datos SQLite local (offline).")
+        os.makedirs("data_local", exist_ok=True)  # crear carpeta local
+        engine = create_engine("sqlite:///data_local/recetario_offline.db", echo=False)
 
 
-def insert_receta(session, receta_obj):
-    """
-    Inserta una receta en la base de datos.
-    Si el paciente o médico ya existen, se reutilizan.
-    """
-    # --- Paciente ---
-    paciente_data = receta_obj['paciente']
-    paciente = session.query(Paciente).filter_by(correo=paciente_data.get('correo')).first()
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    return Session
+
+# Crear instancia global de Session para importación
+Session = init_db()
+
+# Función para insertar receta (compatibilidad con código existente)
+def insert_receta(session, data):
+    """Inserta una receta en la base de datos."""
+    from models import Paciente, Medico, Receta, Medicamento
+    
+    # Buscar o crear paciente
+    paciente = session.query(Paciente).filter_by(correo=data["paciente"]["correo"]).first()
     if not paciente:
         paciente = Paciente(
-            nombre=paciente_data['nombre'],
-            edad=paciente_data.get('edad'),
-            genero=paciente_data.get('genero'),
-            correo=paciente_data.get('correo')
+            nombre=data["paciente"]["nombre"],
+            edad=data["paciente"]["edad"],
+            genero=data["paciente"]["genero"],
+            correo=data["paciente"]["correo"]
         )
         session.add(paciente)
-        session.flush()  # Para obtener paciente.id
-
-    # --- Médico ---
-    medico_data = receta_obj['medico']
-    medico = session.query(Medico).filter_by(cedula_profesional=medico_data.get('cedula')).first()
+        session.flush()
+    
+    # Buscar o crear médico
+    medico = session.query(Medico).filter_by(cedula_profesional=data["medico"]["cedula"]).first()
     if not medico:
         medico = Medico(
-            nombre=medico_data['nombre'],
-            cedula_profesional=medico_data.get('cedula'),
-            especialidad=medico_data.get('especialidad')
+            nombre=data["medico"]["nombre"],
+            cedula_profesional=data["medico"]["cedula"],
+            especialidad=data["medico"]["especialidad"]
         )
         session.add(medico)
-        session.flush()  # Para obtener medico.id
-
-    # --- Receta ---
+        session.flush()
+    
+    # Crear receta
     receta = Receta(
         id_paciente=paciente.id,
         id_medico=medico.id,
-        diagnostico=receta_obj.get('diagnostico'),
-        fecha=datetime.now()
+        diagnostico=data["diagnostico"]
     )
     session.add(receta)
-    session.flush()  # Para obtener receta.id
-
-    # --- Medicamentos ---
-    for m in receta_obj.get('medicamentos', []):
-        med = Medicamento(
+    session.flush()
+    
+    # Agregar medicamentos
+    for med_data in data["medicamentos"]:
+        medicamento = Medicamento(
             id_receta=receta.id,
-            nombre=m['nombre'],
-            dosis=m.get('dosis'),
-            frecuencia=m.get('frecuencia')
+            nombre=med_data["nombre"],
+            dosis=med_data["dosis"],
+            frecuencia=med_data["frecuencia"]
         )
-        session.add(med)
-
-    # --- Guardar cambios ---
-    session.commit()
-    return receta.id
+        session.add(medicamento)
+    
+    return receta

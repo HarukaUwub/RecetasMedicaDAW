@@ -1,30 +1,58 @@
-# sync_job.py
-from apscheduler.schedulers.background import BackgroundScheduler
-from drive_utils import get_drive_service, list_files_in_folder, download_file
-from xml_utils import parsear_xml_receta
-from database import Session, insert_receta
+import os
+from drive_utils import upload_file_bytes, get_service, get_or_create_folder
+from xml_utils import parse_xml_receta
 
-def sync_drive_folder(folder_id):
-    service = get_drive_service()
-    files = list_files_in_folder(service, folder_id)
-    session = Session()
-    for f in files:
-        data_bytes = download_file(service, f['id'])
-        receta_obj = parsear_xml_receta(data_bytes)
-        insert_receta(session, receta_obj)
+# --- DB opcional ---
+DB_AVAILABLE = False
+try:
+    from database import Session, insert_receta
+    DB_AVAILABLE = True
+except Exception as e:
+    print("⚠ Base de datos no disponible:", e)
+    DB_AVAILABLE = False
 
-        receta_for_db = {
-            "paciente": {"nombre": receta_obj['paciente']['nombre'], "edad": receta_obj['paciente'].get('edad'), "genero": receta_obj['paciente'].get('genero'), "correo": None},
-            "medico": {"nombre": receta_obj['medico']['nombre'], "cedula": receta_obj['medico'].get('cedula'), "especialidad": None},
-            "diagnostico": receta_obj.get('diagnostico'),
-            "medicamentos": receta_obj.get('medicamentos', [])
-        }
+OFFLINE_FOLDER = "data_local"
+
+def sincronizar_offline(window):
+    """Sube a Drive y DB los archivos locales pendientes."""
+    print("🔄 Ejecutando sincronización offline...")
+
+    if not os.path.exists(OFFLINE_FOLDER):
+        print("✅ No hay archivos locales.")
+        return
+
+    # Inicializar Drive
+    service = get_service()
+    if not service:
+        print("⚠ Aún sin conexión a Drive.")
+        return
+
+    folder_id = get_or_create_folder(service, "RecetasMedicas")
+
+    for file in os.listdir(OFFLINE_FOLDER):
+        if not file.endswith(".xml"):
+            continue
+
+        path = os.path.join(OFFLINE_FOLDER, file)
         try:
-            insert_receta(session, receta_for_db)
-        except Exception as e:
-            print("Error insertando:", e)
+            with open(path, "rb") as f:
+                xml_data = f.read()
 
-def start_scheduler(folder_id):
-    sched = BackgroundScheduler()
-    sched.add_job(lambda: sync_drive_folder(folder_id), 'interval', minutes=15)
-    sched.start()
+            upload_file_bytes(service, xml_data, file, folder_id)
+            print(f"✅ Sincronizado con Drive: {file}")
+
+            if DB_AVAILABLE:
+                try:
+                    data = parse_xml_receta(xml_data)
+                    session = Session()
+                    insert_receta(session, data)
+                    session.commit()
+                    session.close()
+                    print(f"✅ Sincronizado con DB: {file}")
+                except Exception as e:
+                    print(f"⚠ Error guardando en DB durante sincronización: {e}")
+
+            # Eliminar archivo local solo si se subió correctamente
+            os.remove(path)
+        except Exception as e:
+            print(f"⚠ No se pudo sincronizar {file}: {e}")
