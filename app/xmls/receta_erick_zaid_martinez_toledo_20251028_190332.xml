@@ -1,0 +1,16 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente>
+    <nombre>erick zaid martinez toledo</nombre>
+    <edad>22</edad>
+    <genero>M</genero>
+    <correo>zaidtoledo03@gmail.com</correo>
+  </paciente>
+  <medico>
+    <nombre>juan carlos bodoque</nombre>
+    <cedula>21412341234123</cedula>
+    <especialidad>odontologia</especialidad>
+  </medico>
+  <diagnostico>diente podrido</diagnostico>
+  <medicamentos/>
+</receta>
