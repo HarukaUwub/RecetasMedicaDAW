@@ -1,0 +1,21 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente>
+    <nombre>Maria Lopez</nombre>
+    <edad>veintidos</edad>
+    <genero>X</genero>
+    <correo>maria.lopez@example.com</correo>
+  </paciente>
+  <medico>
+    <nombre>Dra. Martinez</nombre>
+    <cedula>654321</cedula>
+    <especialidad>Dermatología</especialidad>
+  </medico>
+  <medicamentos>
+    <medicamento>
+      <nombre>Crema Hidratante</nombre>
+      <dosis>Aplicar en la piel</dosis>
+      <frecuencia>2 veces al día</frecuencia>
+    </medicamento>
+  </medicamentos>
+</receta>
