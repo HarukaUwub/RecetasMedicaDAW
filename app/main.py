@@ -12,7 +12,7 @@ from drive_utils import (
     get_drive_service, get_or_create_folder, upload_file_bytes,
     list_files_in_folder, download_file_bytes
 )
-from xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta
+from xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta, validar_receta_xml
 from med_pdf_mailer import generate_pdf_with_password, send_email_with_attachment
 
 # --- DB opcional ---
@@ -135,6 +135,14 @@ class MainWindow(QWidget):
         xml_bytes, xml_filename = generar_xml_receta(data)
         xml_path = os.path.join(XML_FOLDER, xml_filename)
         with open(xml_path, 'wb') as f: f.write(xml_bytes)
+
+        # --- Validar XML generado antes de subir ---
+        es_valido, errores = validar_receta_xml(xml_bytes, 'receta.xsd')
+        if not es_valido:
+            error_str = "\n".join(errores)
+            QMessageBox.critical(self, "Error de Validación", f"No se pudo generar una receta válida con los datos ingresados.\n\nDetalles:\n{error_str}")
+            return
+
         pdf_path = generar_pdf_receta(data)
 
         # --- Subir a Drive ---
@@ -183,6 +191,13 @@ class MainWindow(QWidget):
                 xml_bytes = download_file_bytes(self.service, f['id'])
                 local_path = os.path.join(XML_FOLDER, f['name'])
                 with open(local_path, 'wb') as xf: xf.write(xml_bytes)
+
+                es_valido, errores = validar_receta_xml(xml_bytes, 'receta.xsd')
+                if not es_valido:
+                    error_str = "\n".join(errores)
+                    print(f"[ERROR] Falló la validación del archivo {f['name']}\nMotivo: {error_str}\nAcción tomada: Receta rechazada, no insertada en BD.")
+                    QMessageBox.warning(self, "Receta Inválida", f"El archivo {f['name']} es inválido y no se procesará.\n\nDetalles:\n{error_str}")
+                    continue
 
                 receta_data = parse_xml_receta(xml_bytes)
                 receta_data['drive_file_id'] = f['id']

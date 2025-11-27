@@ -148,3 +148,30 @@ def generar_pdf_receta(data):
         y -= 20
     c.save()
     return path
+
+
+def validar_receta_xml(xml_content: bytes, xsd_path: str):
+    """
+    Valida un contenido XML de receta contra un esquema XSD.
+    
+    Args:
+        xml_content: El contenido del archivo XML como bytes.
+        xsd_path: La ruta al archivo de esquema XSD.
+        
+    Returns:
+        Un tuple (es_valido, errores), donde es_valido es un booleano
+        y errores es una lista de mensajes de error.
+    """
+    try:
+        schema_root = etree.parse(xsd_path)
+        schema = etree.XMLSchema(schema_root)
+        
+        xml_doc = etree.fromstring(xml_content)
+        schema.assertValid(xml_doc)
+        
+        return True, []
+        
+    except etree.XMLSyntaxError as e:
+        return False, [f"Error de sintaxis XML: {e}"]
+    except etree.DocumentInvalid as e:
+        return False, [str(error) for error in e.error_log]
