@@ -1,0 +1,25 @@
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+venv/
+.venv/
+app/.venv/
+.env
+
+# Logs and databases
+*.log
+*.db
+data_local/
+
+# Credentials
+token.json
+token.pkl
+credentials.json
+
+# Generated output
+pdfs/
+xmls/

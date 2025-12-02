@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente>
+    <nombre>Paciente Inválido</nombre>
+    <edad>40</edad>
+    <genero>M</genero>
+    <correo>invalido@example.com</correo>
+  </paciente>
+  <medico>
+    <nombre>Dr. Error</nombre>
+    <cedula>000000</cedula>
+    <especialidad>Pruebas</especialidad>
+  </medico>
+  <!-- Falta el diagnóstico obligatorio -->
+  <medicamentos>
+    <medicamento>
+      <nombre>Placebo</nombre>
+    </medicamento>
+  </medicamentos>
+</receta>

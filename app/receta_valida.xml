@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente>
+    <nombre>Juan Perez</nombre>
+    <edad>30</edad>
+    <genero>M</genero>
+    <correo>juan.perez@example.com</correo>
+  </paciente>
+  <medico>
+    <nombre>Dr. Garcia</nombre>
+    <cedula>123456</cedula>
+    <especialidad>Cardiología</especialidad>
+  </medico>
+  <diagnostico>Hipertensión</diagnostico>
+  <medicamentos>
+    <medicamento>
+      <nombre>Lisinopril</nombre>
+      <dosis>10 mg</dosis>
+      <frecuencia>1 vez al día</frecuencia>
+    </medicamento>
+  </medicamentos>
+</receta>
