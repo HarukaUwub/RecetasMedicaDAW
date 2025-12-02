@@ -1,5 +1,6 @@
 import sys
 import os
+from lxml import etree
 from datetime import datetime
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QLineEdit, QTextEdit,
@@ -131,21 +132,20 @@ class MainWindow(QWidget):
             "medicamentos": self.medicamentos
         }
 
-        # --- XML y PDF ---
-        xml_bytes, xml_filename = generar_xml_receta(data)
-        xml_path = os.path.join(XML_FOLDER, xml_filename)
-        with open(xml_path, 'wb') as f: f.write(xml_bytes)
+        try:
+            # --- XML y PDF (con validación y checksum integrados) ---
+            xml_bytes, xml_filename = generar_xml_receta(data)
+            xml_path = os.path.join(XML_FOLDER, xml_filename)
+            with open(xml_path, 'wb') as f: f.write(xml_bytes)
 
-        # --- Validar XML generado antes de subir ---
-        es_valido, errores = validar_receta_xml(xml_bytes, 'receta.xsd')
-        if not es_valido:
-            error_str = "\n".join(errores)
-            QMessageBox.critical(self, "Error de Validación", f"No se pudo generar una receta válida con los datos ingresados.\n\nDetalles:\n{error_str}")
-            return
+        except etree.DocumentInvalid as e:
+            # Captura el error de validación XSD y muestra un mensaje detallado
+            error_str = "\n".join(str(error) for error in e.error_log)
+            QMessageBox.critical(self, "Error de Validación XML", f"La receta no cumple con la estructura requerida (XSD) y no será procesada.\n\nDetalles:\n{error_str}")
+            return # Detiene el proceso si el XML es inválido
 
-        pdf_path = generar_pdf_receta(data)
-
-        # --- Subir a Drive ---
+        # --- Si el XML es válido, proceder a generar PDF, subir a Drive y guardar en BD ---
+        generar_pdf_receta(data)
         self.init_drive()
         if self.service and self.drive_folder_id:
             try:

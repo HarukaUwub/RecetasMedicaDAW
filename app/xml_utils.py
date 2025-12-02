@@ -3,9 +3,28 @@ from datetime import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 import os
+import hashlib
 import xml.etree.ElementTree as ET
 PDF_FOLDER = "pdfs"
 os.makedirs(PDF_FOLDER, exist_ok=True)
+
+XSD_SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "receta.xsd")
+
+def validar_xml_con_xsd(xml_bytes, xsd_path):
+    """
+    Valida un XML en formato de bytes contra un esquema XSD.
+    Lanza una excepción si no es válido.
+    """
+    try:
+        schema_root = etree.parse(xsd_path)
+        schema = etree.XMLSchema(schema_root)
+        xml_doc = etree.fromstring(xml_bytes)
+        schema.assertValid(xml_doc)
+        print("LOG: El XML es estructuralmente válido según el esquema XSD.")
+        return True
+    except etree.DocumentInvalid as e:
+        print(f"ERROR DE VALIDACIÓN XSD: {e}")
+        raise
 
 
 def parse_xml_receta(xml_content: bytes):
@@ -43,8 +62,30 @@ def parse_xml_receta(xml_content: bytes):
 
     return data
 
+def agregar_checksum_a_xml(xml_bytes: bytes) -> bytes:
+    """
+    Calcula el checksum SHA-256 del XML y lo añade como un nuevo elemento.
+    """
+    # Calcular checksum del XML original
+    checksum = hashlib.sha256(xml_bytes).hexdigest()
+
+    # Parsear el XML para añadir el nuevo nodo
+    root = etree.fromstring(xml_bytes)
+    
+    # Añadir el elemento checksum al final
+    etree.SubElement(root, "checksum").text = checksum
+    
+    # Devolver el nuevo XML como bytes
+    return etree.tostring(root, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+
 def generar_xml_receta(data):
-    root = etree.Element("receta")
+    # Añadir referencia al XSD en el elemento raíz
+    xsi_namespace = "http://www.w3.org/2001/XMLSchema-instance"
+    root = etree.Element(
+        "receta",
+        attrib={f"{{{xsi_namespace}}}noNamespaceSchemaLocation": "receta.xsd"},
+        nsmap={'xsi': xsi_namespace}
+    )
 
     paciente = etree.SubElement(root, "paciente")
     etree.SubElement(paciente, "nombre").text = data['paciente']['nombre']
@@ -66,12 +107,23 @@ def generar_xml_receta(data):
         etree.SubElement(med, "dosis").text = m.get('dosis','')
         etree.SubElement(med, "frecuencia").text = m.get('frecuencia','')
 
-    xml_bytes = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+    xml_bytes_sin_checksum = etree.tostring(root, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+    
+    try:
+        # --- Paso 1: Validación con XSD ---
+        # Si la validación falla, `validar_xml_con_xsd` lanzará `etree.DocumentInvalid`.
+        print("LOG: Iniciando validación del XML con el esquema XSD...")
+        validar_xml_con_xsd(xml_bytes_sin_checksum, XSD_SCHEMA_PATH)
+    except etree.DocumentInvalid:
+        raise # Relanzar la excepción para que sea manejada por la UI en main.py
+
+    # --- Paso 2: Añadir Checksum (solo si la validación fue exitosa) ---
+    xml_bytes_con_checksum = agregar_checksum_a_xml(xml_bytes_sin_checksum)
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = "".join(c for c in data['paciente']['nombre'] if c.isalnum() or c in (' ', '_')).strip().replace(" ", "_")
     filename = f"receta_{safe_name}_{ts}.xml"
-    return xml_bytes, filename
-
+    return xml_bytes_con_checksum, filename
 def parsear_xml_receta(xml_bytes):
     if isinstance(xml_bytes, bytes):
         xml_str = xml_bytes.decode('utf-8').strip()

@@ -2,13 +2,23 @@ import os
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from models import Base
-from datetime import datetime
+from dotenv import load_dotenv
+
+# Cargar variables de entorno desde el archivo .env en el directorio raíz
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+load_dotenv(dotenv_path=dotenv_path)
 
 def init_db():
     """Inicializa la BD MySQL si hay conexión, si no usa SQLite local."""
     print("-> Iniciando verificacion de tablas...")
     try:
-        engine = create_engine("mysql+pymysql://root:@localhost/recetario_db", echo=False)
+        # Leer credenciales desde variables de entorno
+        db_user = os.getenv("DB_USER", "root")
+        db_pass = os.getenv("DB_PASS")
+        db_host = os.getenv("DB_HOST", "localhost")
+        db_name = os.getenv("DB_NAME", "recetario_db")
+        
+        engine = create_engine(f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}", echo=False)
         with engine.connect() as conn:
             conn.execute("SELECT 1")
         print("OK Conectado a MySQL")
