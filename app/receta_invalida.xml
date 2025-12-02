@@ -1,21 +1,20 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <receta>
   <paciente>
-    <nombre>Maria Lopez</nombre>
-    <edad>veintidos</edad>
-    <genero>X</genero>
-    <correo>maria.lopez@example.com</correo>
+    <nombre>Paciente Inválido</nombre>
+    <edad>40</edad>
+    <genero>M</genero>
+    <correo>invalido@example.com</correo>
   </paciente>
   <medico>
-    <nombre>Dra. Martinez</nombre>
-    <cedula>654321</cedula>
-    <especialidad>Dermatología</especialidad>
+    <nombre>Dr. Error</nombre>
+    <cedula>000000</cedula>
+    <especialidad>Pruebas</especialidad>
   </medico>
+  <!-- Falta el diagnóstico obligatorio -->
   <medicamentos>
     <medicamento>
-      <nombre>Crema Hidratante</nombre>
-      <dosis>Aplicar en la piel</dosis>
-      <frecuencia>2 veces al día</frecuencia>
+      <nombre>Placebo</nombre>
     </medicamento>
   </medicamentos>
 </receta>

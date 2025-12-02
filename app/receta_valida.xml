@@ -2,7 +2,7 @@
 <receta>
   <paciente>
     <nombre>Juan Perez</nombre>
-    <edad>45</edad>
+    <edad>30</edad>
     <genero>M</genero>
     <correo>juan.perez@example.com</correo>
   </paciente>
@@ -15,7 +15,7 @@
   <medicamentos>
     <medicamento>
       <nombre>Lisinopril</nombre>
-      <dosis>10mg</dosis>
+      <dosis>10 mg</dosis>
       <frecuencia>1 vez al día</frecuencia>
     </medicamento>
   </medicamentos>
