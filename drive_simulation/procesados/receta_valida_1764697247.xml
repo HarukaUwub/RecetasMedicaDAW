@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente><nombre>Paciente-1764697247</nombre><edad>35</edad><genero>F</genero><correo>paciente.1764697247@test.com</correo></paciente>
+  <medico><nombre>Dr. Simulador</nombre><cedula>987654</cedula><especialidad>General</especialidad></medico>
+  <diagnostico>Prueba de Job</diagnostico>
+  <medicamentos><medicamento><nombre>Test-Med</nombre><dosis>500 mg</dosis><frecuencia>Cada 8 horas</frecuencia></medicamento></medicamentos>
+</receta>

@@ -1,7 +1,7 @@
 import os
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
-from models import Base
+from .models import Base
 from dotenv import load_dotenv
 
 # Cargar variables de entorno desde el archivo .env en el directorio raíz
@@ -39,7 +39,7 @@ Session = init_db()
 # Función para insertar receta (compatibilidad con código existente)
 def insert_receta(session, data):
     """Inserta una receta en la base de datos."""
-    from models import Paciente, Medico, Receta, Medicamento
+    from .models import Paciente, Medico, Receta, Medicamento
     
     # Buscar o crear paciente
     paciente = session.query(Paciente).filter_by(correo=data["paciente"]["correo"]).first()

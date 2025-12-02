@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<receta>
+  <paciente><nombre>Paciente Invalido</nombre><edad>50</edad><genero>M</genero><correo>invalido@test.com</correo></paciente>
+  <!-- Faltan campos obligatorios -->
+</receta>

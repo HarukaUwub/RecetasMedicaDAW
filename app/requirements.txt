@@ -20,7 +20,7 @@ lxml
 
 
 # Programación de jobs
-APScheduler
+APScheduler # Para ejecutar tareas programadas
 
 # Otros
 python-dotenv
