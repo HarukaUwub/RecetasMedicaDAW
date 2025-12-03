@@ -4,6 +4,9 @@ from datetime import datetime
 from lxml import etree
 from lxml.etree import Element, SubElement, tostring
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PATIENT_XSD_FILE_PATH = os.path.join(BASE_DIR, 'paciente.xsd')
+
 def generar_xml_paciente(paciente_data, operacion="ALTA"):
     """
     Genera XML de paciente según el esquema definido.
@@ -62,7 +65,7 @@ def generar_xml_paciente(paciente_data, operacion="ALTA"):
     
     return xml_str, filename
 
-def validar_xml_con_xsd(xml_bytes, xsd_path="paciente.xsd"):
+def validar_xml_con_xsd(xml_bytes, xsd_path=PATIENT_XSD_FILE_PATH):
     """
     Valida XML contra el esquema XSD.
     

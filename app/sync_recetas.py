@@ -7,13 +7,13 @@ Maneja la sincronización entre archivos XML locales, base de datos local y Goog
 import os
 import hashlib
 from datetime import datetime
-from database import Session
-from models import (
+from .database import Session
+from .models import (
     RecetaLocal, MedicoLocal, MedicamentoLocal, PacienteLocal, 
     SyncArchivos, Receta, Medico, Medicamento, Paciente
 )
-from xml_utils import parse_xml_receta, generar_xml_receta
-from drive_utils import (
+from .xml_utils import parse_xml_receta, generar_xml_receta
+from .drive_utils import (
     get_drive_service, get_or_create_folder, upload_file_bytes,
     list_files_in_folder, download_file_bytes, move_file_to_folder
 )
@@ -25,9 +25,9 @@ class RecetaSyncManager:
         self.session = Session()
         self.drive_service = None
         self.xml_folder = "xmls"
-        self.pendientes_folder = "RecetasMedicas/pendientes"
-        self.procesados_folder = "RecetasMedicas/procesados"
-        self.errores_folder = "RecetasMedicas/errores"
+        self.pendientes_folder = "RecetasSync/pendientes"
+        self.procesados_folder = "RecetasSync/procesados"
+        self.errores_folder = "RecetasSync/errores"
         
     def init_drive(self):
         """Inicializa conexión con Google Drive."""
@@ -229,8 +229,13 @@ class RecetaSyncManager:
         
         try:
             # Listar archivos en carpeta pendientes
-            folder_id = get_or_create_folder(self.drive_service, self.pendientes_folder)
-            files = list_files_in_folder(self.drive_service, folder_id)
+            main_folder_name, subfolder_name = self.pendientes_folder.split('/')
+            main_folder_id = get_or_create_folder(self.drive_service, main_folder_name)
+            
+            if not main_folder_id:
+                raise Exception(f"No se pudo encontrar o crear la carpeta principal '{main_folder_name}'")
+            pendientes_folder_id = get_or_create_folder(self.drive_service, subfolder_name, parent_id=main_folder_id)
+            files = list_files_in_folder(self.drive_service, pendientes_folder_id)
             
             print(f"[INFO] Archivos encontrados en Drive: {len(files)}")
             
@@ -336,6 +341,10 @@ class RecetaSyncManager:
     def _buscar_o_crear_paciente_local(self, paciente_data):
         """Busca o crea un paciente local."""
         correo = paciente_data.get("correo", "")
+        nombre = paciente_data.get("nombre", "")
+
+        if not nombre:
+            raise ValueError("El nombre del paciente es obligatorio para crear o buscar un registro local.")
         
         if correo:
             paciente = self.session.query(PacienteLocal).filter_by(correo=correo).first()
@@ -349,7 +358,7 @@ class RecetaSyncManager:
         # Crear nuevo paciente local
         paciente = PacienteLocal(
             id_externo=id_externo,
-            nombre=paciente_data.get("nombre", ""),
+            nombre=nombre,
             edad=paciente_data.get("edad"),
             genero=paciente_data.get("genero", ""),
             correo=correo,

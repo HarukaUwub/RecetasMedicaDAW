@@ -4,6 +4,7 @@ Aplicación de Escritorio con Sincronización de Pacientes.
 Extiende la aplicación existente con funcionalidades de sincronización.
 """
 
+import logging
 import sys
 import os
 from datetime import datetime
@@ -16,28 +17,33 @@ from PyQt5.QtCore import QTimer, QThread, pyqtSignal
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- Utils existentes ---
-from drive_utils import (
+from .drive_utils import (
     get_drive_service, get_or_create_folder, upload_file_bytes,
     list_files_in_folder, download_file_bytes
 )
-from xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta
-from med_pdf_mailer import generate_pdf_with_password, send_email_with_attachment
+from .xml_utils import generar_xml_receta, generar_pdf_receta, parse_xml_receta
+from .med_pdf_mailer import generate_pdf_with_password, send_email_with_attachment
 
 # --- Nuevas utilidades ---
-from sync_pacientes import PacienteSyncManager, sincronizar_pacientes_manual
-from paciente_xml_utils import crear_paciente_desde_formulario, generar_y_subir_paciente_xml, validar_xml_con_xsd, parse_xml_paciente
+from .sync_pacientes import PacienteSyncManager, sincronizar_pacientes_manual
+from .paciente_xml_utils import crear_paciente_desde_formulario, generar_y_subir_paciente_xml, validar_xml_con_xsd, parse_xml_paciente
 from dotenv import load_dotenv
 load_dotenv()
+
+# --- Configuración de Logging ---
+from .logger_config import setup_logging
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # --- DB opcional ---
 DB_AVAILABLE = False
 try:
-    from database import Session, insert_receta
-    from models import Receta, Paciente, Medico, PacienteLocal, SyncArchivos
+    from .database import Session, insert_receta
+    from .models import Receta, Paciente, Medico, PacienteLocal, SyncArchivos
     DB_AVAILABLE = True
 except Exception as e:
     DB_AVAILABLE = False
-    print("DB no disponible:", e)
+    logger.warning(f"Base de datos no disponible: {e}")
 
 # --- Carpetas locales ---
 XML_FOLDER = "xmls"
@@ -54,7 +60,7 @@ class SyncThread(QThread):
     
     def run(self):
         try:
-            self.sync_progress.emit("Iniciando sincronización...")
+            logger.info("Iniciando hilo de sincronización...")
             manager = PacienteSyncManager()
             resultado = manager.sincronizar_pacientes()
             self.sync_completed.emit(resultado)
@@ -416,23 +422,23 @@ class MainWindow(QWidget):
 
     def refrescar_pacientes(self):
         """Refresca la lista de pacientes locales."""
-        print("Iniciando refrescar_pacientes...")
+        logger.info("Refrescando la lista de pacientes locales...")
         
         if not DB_AVAILABLE:
-            print("DB_AVAILABLE es False")
+            logger.warning("No se puede refrescar pacientes, la base de datos no está disponible.")
             self.tabla_pacientes.setRowCount(0)
             QMessageBox.warning(self, "Error", "Base de datos no disponible")
             return
 
         try:
             # Usar Session directamente en lugar de sync_manager
-            from database import Session
-            from models import PacienteLocal
+            from .database import Session
+            from .models import PacienteLocal
             
             session = Session()
             pacientes = session.query(PacienteLocal).all()
             
-            print(f"Pacientes encontrados: {len(pacientes)}")
+            logger.info(f"Se encontraron {len(pacientes)} pacientes en la BD local.")
             
             self.tabla_pacientes.setRowCount(len(pacientes))
             
@@ -447,14 +453,13 @@ class MainWindow(QWidget):
                 self.tabla_pacientes.setItem(i, 7, QTableWidgetItem(
                     paciente.synced_at.strftime("%Y-%m-%d %H:%M") if paciente.synced_at else ""
                 ))
-                print(f"Agregado a tabla: {paciente.nombre}")
             
             session.close()
             
             QMessageBox.information(self, "Éxito", f"Lista actualizada con {len(pacientes)} pacientes")
             
         except Exception as e:
-            print(f"Error en refrescar_pacientes: {e}")
+            logger.error(f"Error al refrescar la lista de pacientes: {e}", exc_info=True)
             QMessageBox.warning(self, "Error", f"Error refrescando pacientes: {str(e)}")
 
     def procesar_archivos_locales(self):
@@ -593,7 +598,7 @@ class MainWindow(QWidget):
             return
         
         try:
-            from sync_recetas import RecetaSyncManager
+            from .sync_recetas import RecetaSyncManager
             manager = RecetaSyncManager()
             procesados, errores = manager.procesar_archivos_xml_locales()
             manager.cerrar_sesion()
@@ -615,7 +620,7 @@ class MainWindow(QWidget):
             return
         
         try:
-            from sync_recetas import RecetaSyncManager
+            from .sync_recetas import RecetaSyncManager
             manager = RecetaSyncManager()
             sincronizadas, errores = manager.sincronizar_con_drive()
             manager.cerrar_sesion()
@@ -634,7 +639,7 @@ class MainWindow(QWidget):
             return
         
         try:
-            from sync_recetas import RecetaSyncManager
+            from .sync_recetas import RecetaSyncManager
             manager = RecetaSyncManager()
             procesadas, errores = manager.sincronizar_desde_drive()
             manager.cerrar_sesion()
@@ -656,7 +661,7 @@ class MainWindow(QWidget):
             return
         
         try:
-            from models import RecetaLocal
+            from .models import RecetaLocal
             session = Session()
             recetas = session.query(RecetaLocal).all()
             
@@ -702,7 +707,7 @@ class MainWindow(QWidget):
         receta_id = int(self.tabla_recetas_offline.item(current_row, 0).text())
         
         try:
-            from models import RecetaLocal
+            from .models import RecetaLocal
             session = Session()
             receta = session.query(RecetaLocal).filter_by(id=receta_id).first()
             
@@ -1008,7 +1013,7 @@ Medicamentos:
         if DB_AVAILABLE and not receta:
             session = Session()
             try:
-                from models import RecetaLocal
+                from .models import RecetaLocal
                 receta_obj = session.query(RecetaLocal).filter_by(id=receta_id).first()
                 if receta_obj:
                     receta = {

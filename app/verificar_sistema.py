@@ -2,10 +2,10 @@
 """
 Script para verificar el estado completo del sistema
 """
-
-from database import Session
-from models import PacienteLocal, SyncArchivos
-from drive_utils import get_drive_service, list_pacientes_pendientes
+# Asegúrate de que los imports sean relativos
+from .database import Session
+from .models import PacienteLocal, SyncArchivos
+from .drive_utils import get_drive_service, list_pacientes_pendientes
 
 def verificar_estado_sistema():
     """Verifica el estado completo del sistema."""
@@ -14,6 +14,7 @@ def verificar_estado_sistema():
     # Verificar base de datos local
     print("\n1. Base de Datos Local:")
     try:
+        pacientes = []  # Inicializar por si falla la BD
         session = Session()
         pacientes = session.query(PacienteLocal).all()
         archivos_sync = session.query(SyncArchivos).all()
@@ -58,6 +59,10 @@ def verificar_estado_sistema():
         print("   [INFO] Ejecuta 'python crear_y_sincronizar.py' para crear pacientes de prueba")
 
 if __name__ == "__main__":
-    verificar_estado_sistema()
-
-
+    # Para evitar el error "ImportError: attempted relative import with no known parent package",
+    # este script debe ser ejecutado como un módulo.
+    if __package__ is None:
+        print("ERROR: Este script debe ser ejecutado como un módulo.")
+        print("Use: python3 -m app.verificar_sistema")
+    else:
+        verificar_estado_sistema()

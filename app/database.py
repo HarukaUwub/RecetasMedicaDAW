@@ -1,16 +1,22 @@
 import os
+import logging
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 from .models import Base
 from dotenv import load_dotenv
+from .logger_config import setup_logging
 
 # Cargar variables de entorno desde el archivo .env en el directorio raíz
 dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
 load_dotenv(dotenv_path=dotenv_path)
 
+# Configurar logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
 def init_db():
     """Inicializa la BD MySQL si hay conexión, si no usa SQLite local."""
-    print("-> Iniciando verificacion de tablas...")
+    logger.info("Iniciando verificación de conexión a base deatos...")
     try:
         # Leer credenciales desde variables de entorno
         db_user = os.getenv("DB_USER", "root")
@@ -21,10 +27,10 @@ def init_db():
         engine = create_engine(f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}", echo=False)
         with engine.connect() as conn:
             conn.execute("SELECT 1")
-        print("OK Conectado a MySQL")
+        logger.info("Conexión a MySQL exitosa.")
     except Exception as e:
-        print(f"ADVERTENCIA No se pudo conectar a MySQL: {e}")
-        print("-> Usando base de datos SQLite local (offline).")
+        logger.warning(f"No se pudo conectar a MySQL: {e}")
+        logger.info("Usando base de datos SQLite local (offline).")
         os.makedirs("data_local", exist_ok=True)  # crear carpeta local
         engine = create_engine("sqlite:///data_local/recetario_offline.db", echo=False)
 

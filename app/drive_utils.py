@@ -13,14 +13,19 @@ os.makedirs("data_local", exist_ok=True)
 # ====================== Servicio de Drive ======================
 def get_drive_service():
     """Crea el servicio de Drive; devuelve None si falla."""
+    
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    TOKEN_PATH = os.path.join(BASE_DIR, 'token.json')
+    CREDS_PATH = os.path.join(BASE_DIR, 'credentials.json')
+
     try:
         creds = None
-        if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
+        if os.path.exists(TOKEN_PATH):
+            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
         else:
-            flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(CREDS_PATH, SCOPES)
             creds = flow.run_local_server(port=0)
-            with open("token.json", "w") as token:
+            with open(TOKEN_PATH, "w") as token:
                 token.write(creds.to_json())
         return build("drive", "v3", credentials=creds)
     except Exception as e:
@@ -28,18 +33,23 @@ def get_drive_service():
         return None
 
 # ====================== Carpeta ======================
-def get_or_create_folder(service, folder_name):
+def get_or_create_folder(service, folder_name, parent_id=None):
     """Obtiene o crea una carpeta en Drive; devuelve folder_id o None."""
     if not service:
         return None
     try:
         query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        if parent_id:
+            query += f" and '{parent_id}' in parents"
+
         results = service.files().list(q=query, fields="files(id, name)").execute()
         folders = results.get("files", [])
         if folders:
             return folders[0]["id"]
         # Crear carpeta si no existe
         file_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
+        if parent_id:
+            file_metadata["parents"] = [parent_id]
         folder = service.files().create(body=file_metadata, fields="id").execute()
         return folder.get("id")
     except Exception as e:
@@ -105,36 +115,47 @@ def download_file_bytes(service, file_id, filename=None):
 
 # ====================== Carpetas específicas para pacientes ======================
 def get_or_create_pacientes_folder(service):
-    """Obtiene o crea la carpeta específica para pacientes en Drive."""
+    """Obtiene o crea las subcarpetas para pacientes en Drive; devuelve un dict de folder_ids."""
     if not service:
         return None
+    
+    subfolder_ids = {}
+    
     try:
-        folder_name = "PacientesSync"
-        query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        results = service.files().list(q=query, fields="files(id, name)").execute()
-        folders = results.get("files", [])
-        if folders:
-            return folders[0]["id"]
+        # 1. Encontrar o crear la carpeta principal "PacientesSync"
+        main_folder_name = "PacientesSync"
+        query_main = f"name='{main_folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results_main = service.files().list(q=query_main, fields="files(id, name)").execute()
+        main_folders = results_main.get("files", [])
         
-        # Crear carpeta principal
-        file_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-        folder = service.files().create(body=file_metadata, fields="id").execute()
-        main_folder_id = folder.get("id")
+        if main_folders:
+            main_folder_id = main_folders[0]["id"]
+        else:
+            file_metadata = {"name": main_folder_name, "mimeType": "application/vnd.google-apps.folder"}
+            folder = service.files().create(body=file_metadata, fields="id").execute()
+            main_folder_id = folder.get("id")
+            
+        # 2. Encontrar o crear las subcarpetas dentro de "PacientesSync"
+        subfolder_names = ["pendientes", "procesados", "errores"]
         
-        # Crear subcarpetas
-        subfolders = ["pendientes", "procesados", "errores"]
-        subfolder_ids = {}
+        for subfolder_name in subfolder_names:
+            query_sub = f"name='{subfolder_name}' and '{main_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results_sub = service.files().list(q=query_sub, fields="files(id, name)").execute()
+            sub_folders = results_sub.get("files", [])
+            
+            if sub_folders:
+                subfolder_ids[subfolder_name] = sub_folders[0]["id"]
+            else:
+                subfolder_metadata = {
+                    "name": subfolder_name,
+                    "mimeType": "application/vnd.google-apps.folder",
+                    "parents": [main_folder_id]
+                }
+                subfolder = service.files().create(body=subfolder_metadata, fields="id").execute()
+                subfolder_ids[subfolder_name] = subfolder.get("id")
         
-        for subfolder_name in subfolders:
-            subfolder_metadata = {
-                "name": subfolder_name, 
-                "mimeType": "application/vnd.google-apps.folder",
-                "parents": [main_folder_id]
-            }
-            subfolder = service.files().create(body=subfolder_metadata, fields="id").execute()
-            subfolder_ids[subfolder_name] = subfolder.get("id")
-        
-        return main_folder_id, subfolder_ids
+        return subfolder_ids # Always return the dictionary of subfolder IDs
+    
     except Exception as e:
         print("⚠ Error en get_or_create_pacientes_folder:", e)
         return None
@@ -150,17 +171,15 @@ def upload_paciente_xml(service, xml_bytes, filename):
         return None
     
     try:
-        folder_info = get_or_create_pacientes_folder(service)
-        if isinstance(folder_info, tuple):
-            main_folder_id, subfolder_ids = folder_info
-            pendientes_folder_id = subfolder_ids.get("pendientes")
-        else:
-            pendientes_folder_id = folder_info
+        subfolder_ids = get_or_create_pacientes_folder(service)
+        pendientes_folder_id = subfolder_ids.get("pendientes")
         
         if pendientes_folder_id:
             return upload_file_bytes(service, xml_bytes, filename, pendientes_folder_id)
         else:
-            return upload_file_bytes(service, xml_bytes, filename)
+            # Fallback if pendientes folder not found (should not happen with refactored get_or_create)
+            print(f"⚠ No se encontró la carpeta 'pendientes', subiendo a la raíz de PacientesSync o a Drive por defecto.")
+            return upload_file_bytes(service, xml_bytes, filename) # Uploads to root or default Drive
     except Exception as e:
         print(f"⚠ Error subiendo XML de paciente: {e}")
         return upload_file_bytes(service, xml_bytes, filename)
@@ -183,16 +202,13 @@ def list_pacientes_pendientes(service):
         return local_files
     
     try:
-        folder_info = get_or_create_pacientes_folder(service)
-        if isinstance(folder_info, tuple):
-            main_folder_id, subfolder_ids = folder_info
-            pendientes_folder_id = subfolder_ids.get("pendientes")
-        else:
-            pendientes_folder_id = folder_info
+        subfolder_ids = get_or_create_pacientes_folder(service)
         
-        if pendientes_folder_id:
+        if subfolder_ids and "pendientes" in subfolder_ids:
+            pendientes_folder_id = subfolder_ids["pendientes"]
             return list_files_in_folder(service, pendientes_folder_id)
         else:
+            print("⚠ No se encontró la carpeta 'pendientes' para listar archivos.")
             return []
     except Exception as e:
         print(f"⚠ Error listando pacientes pendientes: {e}")
@@ -237,7 +253,7 @@ def mark_file_as_processed(service, file_id, filename, success=True):
             old_path = os.path.join(pacientes_dir, filename)
             if os.path.exists(old_path):
                 suffix = "_OK.xml" if success else "_ERR.xml"
-                new_name = filename.replace('.xml', suffix)
+                new_name = filename.replace('.xml', f'{suffix}.xml')
                 new_path = os.path.join(pacientes_dir, new_name)
                 os.rename(old_path, new_path)
                 return True
@@ -246,17 +262,17 @@ def mark_file_as_processed(service, file_id, filename, success=True):
         return False
     
     try:
-        folder_info = get_or_create_pacientes_folder(service)
-        if isinstance(folder_info, tuple):
-            main_folder_id, subfolder_ids = folder_info
-            target_folder_id = subfolder_ids.get("procesados" if success else "errores")
-        else:
-            target_folder_id = folder_info
+        subfolder_ids = get_or_create_pacientes_folder(service)
         
-        if target_folder_id:
-            suffix = "_OK" if success else "_ERR"
-            new_name = filename.replace('.xml', f'{suffix}.xml')
-            return move_file_to_folder(service, file_id, target_folder_id, new_name)
+        if subfolder_ids:
+            target_folder_id = subfolder_ids.get("procesados" if success else "errores")
+            
+            if target_folder_id:
+                suffix = "_OK" if success else "_ERR"
+                new_name = filename.replace('.xml', f'{suffix}.xml')
+                return move_file_to_folder(service, file_id, target_folder_id, new_name)
+        
+        print(f"⚠ No se encontró la carpeta destino para mover el archivo {filename}.")
         return False
     except Exception as e:
         print(f"⚠ Error marcando archivo como procesado: {e}")

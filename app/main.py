@@ -192,7 +192,7 @@ class MainWindow(QWidget):
                 local_path = os.path.join(XML_FOLDER, f['name'])
                 with open(local_path, 'wb') as xf: xf.write(xml_bytes)
 
-                es_valido, errores = validar_receta_xml(xml_bytes, 'receta.xsd')
+                es_valido, errores = validar_receta_xml(xml_bytes, os.path.join(os.path.dirname(__file__), 'receta.xsd'))
                 if not es_valido:
                     error_str = "\n".join(errores)
                     print(f"[ERROR] Falló la validación del archivo {f['name']}\nMotivo: {error_str}\nAcción tomada: Receta rechazada, no insertada en BD.")

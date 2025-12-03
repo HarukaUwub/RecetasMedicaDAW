@@ -1,13 +1,13 @@
 import os
 from datetime import datetime, timedelta
 from sqlalchemy.orm import sessionmaker
-from database import init_db
-from models import PacienteLocal, SyncArchivos
-from drive_utils import (
+from .database import init_db, Session
+from .models import PacienteLocal, SyncArchivos
+from .drive_utils import (
     get_drive_service, list_pacientes_pendientes, download_file_bytes,
     mark_file_as_processed, calculate_checksum, verify_checksum
 )
-from paciente_xml_utils import parse_xml_paciente, validar_xml_con_xsd
+from .paciente_xml_utils import parse_xml_paciente, validar_xml_con_xsd
 
 class PacienteSyncManager:
     """Manejador de sincronización de pacientes entre BD Web y BD Local."""
@@ -105,11 +105,8 @@ class PacienteSyncManager:
         
         # Verificar checksum si está presente (opcional)
         if paciente_data.get("checksum"):
-            try:
-                if not verify_checksum(xml_bytes, paciente_data["checksum"]):
-                    print(f"[ADVERTENCIA] Checksum no coincide para {filename}, continuando de todas formas")
-            except Exception as e:
-                print(f"[ADVERTENCIA] Error verificando checksum: {e}, continuando")
+            if not verify_checksum(xml_bytes, paciente_data["checksum"]):
+                raise Exception(f"Checksum no coincide para {filename}")
         
         # Procesar paciente en BD Local
         actualizado = self._upsert_paciente_local(session, paciente_data)

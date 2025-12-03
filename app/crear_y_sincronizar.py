@@ -3,9 +3,9 @@
 Script para crear un paciente desde la aplicación y sincronizarlo
 """
 
-from paciente_xml_utils import crear_paciente_desde_formulario, generar_y_subir_paciente_xml
-from drive_utils import get_drive_service
-from sync_pacientes import PacienteSyncManager
+from .paciente_xml_utils import crear_paciente_desde_formulario, generar_y_subir_paciente_xml
+from .drive_utils import get_drive_service
+from .sync_pacientes import PacienteSyncManager
 
 def crear_y_sincronizar_paciente():
     """Crea un paciente y lo sincroniza."""

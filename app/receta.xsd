@@ -30,6 +30,7 @@
           </xs:complexType>
         </xs:element>
         <xs:element name="diagnostico" type="xs:string"/>
+        <xs:element name="checksum" type="xs:string" minOccurs="0"/>
         <xs:element name="medicamentos">
           <xs:complexType>
             <xs:sequence>
