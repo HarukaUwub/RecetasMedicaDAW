@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+  <xs:element name="medico">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="id" type="xs:string"/>
+        <xs:element name="nombre" type="xs:string"/>
+        <xs:element name="cedula" type="xs:string" minOccurs="0"/>
+        <xs:element name="correo" type="xs:string" minOccurs="0"/>
+        <xs:element name="metadatos">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element name="fecha_creacion" type="xs:dateTime" minOccurs="0"/>
+              <xs:element name="checksum" type="xs:string" minOccurs="0"/>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+      <xs:attribute name="id" type="xs:string" use="required"/>
+      <xs:attribute name="version" type="xs:string" use="optional"/>
+    </xs:complexType>
+  </xs:element>
+
+</xs:schema>

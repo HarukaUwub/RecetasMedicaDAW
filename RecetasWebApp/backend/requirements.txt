@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+sqlalchemy
+lxml
+python-dotenv
+reportlab
+PyPDF2
+requests
+pydantic
+passlib[bcrypt]
+pyjwt
+cryptography
+lxml
+python-dotenv

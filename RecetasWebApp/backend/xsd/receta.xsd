@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+    <!-- ELEMENTO RAÍZ -->
+    <xs:element name="receta">
+        <xs:complexType>
+            <xs:sequence>
+                
+                <!-- PACIENTE -->
+                <xs:element name="paciente">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="id" type="xs:int"/>
+                            <xs:element name="nombre" type="xs:string"/>
+                            <xs:element name="apellido" type="xs:string"/>
+                            <xs:element name="fecha_nacimiento" type="xs:date"/>
+                            <xs:element name="sexo">
+                                <xs:simpleType>
+                                    <xs:restriction base="xs:string">
+                                        <xs:enumeration value="M"/>
+                                        <xs:enumeration value="F"/>
+                                    </xs:restriction>
+                                </xs:simpleType>
+                            </xs:element>
+                            <xs:element name="telefono" type="xs:string"/>
+                            <xs:element name="correo" type="xs:string"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- MEDICO -->
+                <xs:element name="medico">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="id" type="xs:int"/>
+                            <xs:element name="nombre" type="xs:string"/>
+                            <xs:element name="cedula" type="xs:string"/>
+                            <xs:element name="correo" type="xs:string"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- DIAGNOSTICO -->
+                <xs:element name="diagnostico" type="xs:string"/>
+
+                <!-- MEDICAMENTOS -->
+                <xs:element name="medicamentos">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="medicamento" maxOccurs="unbounded">
+                                <xs:complexType>
+                                    <xs:sequence>
+                                        <xs:element name="nombre" type="xs:string"/>
+                                        <xs:element name="dosis" type="xs:string"/>
+                                        <xs:element name="frecuencia" type="xs:string"/>
+                                        <xs:element name="duracion" type="xs:string"/>
+                                    </xs:sequence>
+                                </xs:complexType>
+                            </xs:element>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+                <!-- INDICACIONES -->
+                <xs:element name="indicaciones" type="xs:string"/>
+
+                <!-- METADATOS -->
+                <xs:element name="metadatos">
+                    <xs:complexType>
+                        <xs:sequence>
+                            <xs:element name="fecha_emision" type="xs:dateTime"/>
+                            <xs:element name="checksum">
+                                <xs:simpleType>
+                                    <xs:restriction base="xs:string">
+                                        <!-- SHA256: 64 caracteres hex -->
+                                        <xs:pattern value="[0-9a-fA-F]{64}"/>
+                                    </xs:restriction>
+                                </xs:simpleType>
+                            </xs:element>
+                            <xs:element name="id_receta" type="xs:string"/>
+                            <xs:element name="origen" type="xs:string"/>
+                        </xs:sequence>
+                    </xs:complexType>
+                </xs:element>
+
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+</xs:schema>
